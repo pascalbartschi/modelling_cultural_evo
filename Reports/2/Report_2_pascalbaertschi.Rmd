@@ -1,0 +1,233 @@
+---
+title: "Report_2_pascal_baertschi"
+author: "Pascal Bärtschi (20-713-962)"
+date: "2023-03-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load data and libraries
+```{r include=FALSE}
+# libraries
+library(tidyverse)
+library(intergraph)
+library(sna)
+library(network)
+library(igraph)
+
+# import edgelist
+edgelist <- read.csv("motes.csv")
+```
+
+
+# 1. Visualization
+
+## a) plot undirected
+
+```{r warning = F}
+# network of hunter gatherer with interaction weights
+hg_net <- network(edgelist[,c("ID1", "ID2")], directed = F) 
+
+plot(hg_net, gmode = "graph", displaylabels = T, vertex.cex. = 2)
+```
+## b) plot with weights
+
+```{r warning = F}
+# add weights
+# igraph:set.edge.attribute(hg_net, "weights", edgelist$weights)
+hg_net %e% "weights" <- edgelist$weights
+# plot with weights
+plot(hg_net, edge.lwd = 0.05 * (hg_net %e% "weights"),displaylabels = T, vertex.cex = 2)
+```
+
+# 2. Main network properties
+
+## a) - f)
+
+```{r}
+# convert to igraph object
+ihg_net <-asIgraph(hg_net)
+print(paste("a) Size:", network::network.size(hg_net)))
+print(paste("b) Density:", sna::gden(hg_net)))
+print(paste("c) Components:", sna::components(hg_net)))
+print(paste("d) Diameter:", igraph::diameter(ihg_net)))
+print(paste("e) Avg. mean path:",igraph::mean_distance(ihg_net)))
+print(paste("f) Transitivity:", igraph::transitivity(ihg_net)))
+```
+
+# 3. node features
+
+## a) mean degree
+
+```{r}
+print(mean(sna::degree(hg_net, gmode ="graph")))
+```
+
+
+## b) degree distribution
+
+```{r}
+hist(sna::degree(hg_net, gmode ="graph"), 
+     main = "degree distribution", 
+     xlab = "number of degrees", 
+     ylab = "number of edges")
+```
+
+# 4. Centrality measures
+
+## a) table
+
+```{r}
+cen_table <- data.frame("id" = as.vector(V(ihg_net)) - 1, # correct ids
+                         "degree" = sna::degree(hg_net, gmode = "graph"),
+                         "closeness" = sna::closeness(hg_net, gmode = "graph"),
+                         "betweenness" = sna::betweenness(hg_net, gmode = "graph"))
+```
+
+## b) top 3 most central individuals of each centrality measure
+
+```{r}
+# sort for degree
+print((cen_table %>% arrange(desc(degree)))[1:3,1:2])
+
+# sort for closeness
+print((cen_table %>% arrange(desc(closeness)))[1:3,c(1, 3)])
+
+# sort for betweenness
+print((cen_table %>% arrange(desc(betweenness)))[1:3,c(1, 4)])
+
+```
+
+
+## c) discussion
+
+While the measures of centrality and degree agree with the ranking of the top 3
+most important individuals agree, betweenness leads to a different conclusion. 
+When looking at the plot of the network, however, this makes sense since number 30, 
+40 and 2 lie on the the main part of the network, leading to high degrees and close
+distances to others. The measurement of betweenness doesn't take this into account,
+but measures how many shortest paths lead over certain nodes and since 50 connects
+the two subnetworks it has high connectivity.
+Overall, I'd say that number two is the most central node, since its the only ID that 
+is in the top 3 of all measures.
+ 
+
+ 
+# 5. plot cutpoints
+ 
+```{r}
+cuts <- cutpoints(hg_net,mode="graph", return.indicator=T)
+
+gplot(hg_net, gmode="graph", vertex.col = cuts+2, displaylabels=T, 
+      # color schemes vary with adding different integers
+      label.pos=3, vertex.cex=2, label.cex = 1)
+```
+ 
+# 6. Coreness
+
+## a) min and max coreness
+
+```{r}
+coreness_hg <- igraph::coreness(ihg_net)
+print(paste("max coreness:", max(coreness_hg)))
+print(paste("min coreness:", min(coreness_hg)))
+```
+
+## b) k-coreplot
+
+```{r}
+V(ihg_net)$colour <- coreness_hg 
+plot(ihg_net,vertex.label.cex=0.8, vertex.color=coreness_hg, 
+     vertex.label=coreness_hg, gmode="graph")
+```
+
+# 7. community detection
+
+## a) detect using algorithms
+
+### walktrap
+
+```{r}
+walktrap_members <- igraph::membership(igraph::cluster_walktrap(ihg_net))
+plot(ihg_net,vertex.label.cex=0.8, vertex.color=walktrap_members, 
+     vertex.label=walktrap_members, gmode="graph", main ="cluster_walktrap")
+```
+
+### cluster_louvain
+
+```{r}
+louvain_members <- igraph::membership(igraph::cluster_louvain(ihg_net))
+plot(ihg_net,vertex.label.cex=0.8, vertex.color=louvain_members, 
+     vertex.label=louvain_members, gmode="graph", main ="cluster_louvain")
+```
+
+## b) identifical classification by algorithms
+
+```{r}
+# create df with results for ids
+cluster_df <- data.frame("id" = as.vector(V(ihg_net) - 1),
+                         "walktrap" = as.vector(walktrap_members), 
+                         "louvain" = as.vector(louvain_members))
+# slice the ids that are NOT classified the same
+print(cluster_df[walktrap_members != louvain_members,])
+print(paste("Different classifications: ", sum(walktrap_members != louvain_members), "of 53 nodes"))
+```
+# 8. Model networks
+
+## a) random and small world network
+
+ask whether type is right
+```{r}
+hg_rnd <- erdos.renyi.game(n = length(V(ihg_net)),  # n = number of edges?
+                           p = sna::gden(hg_net),   # p probabikity?
+                           type = "gnp")            # type ?
+
+hg_swn <- watts.strogatz.game(dim=1,
+                              size=length(V(ihg_net)),
+                              nei=mean(sna::degree(hg_net, gmode ="graph")/2), # neighbours
+                              p=0.05) # randomness
+```
+
+## b) comparison table of networks
+
+```{r}
+compare_net <- data.frame(network = c("real", "random", "SWM"), 
+                         diameter = c(diameter(ihg_net), 
+                                      diameter(hg_rnd), 
+                                      diameter(hg_swn)),
+                         mean_path = c(mean_distance(ihg_net),
+                                       mean_distance(hg_rnd),
+                                       mean_distance(hg_swn)),
+                         transitivity = c(transitivity(ihg_net), 
+                                          transitivity(hg_rnd),
+                                          transitivity(hg_swn)))
+print(compare_net)
+```
+
+## c) distribution of networks
+
+
+### degree distributions
+
+```{r, fig.show="hold", fig.width=3, fig.height=3}
+par(mar = c(4, 4, 2, 1))
+plot(degree.distribution(ihg_net), type="b", main="real")
+plot(degree.distribution(hg_rnd), type="b", main="random")
+plot(degree.distribution(hg_swn), type="b", main="SWN")
+```
+### local transitivity distributions
+
+```{r fig.show="hold", fig.width=3, fig.height=3}
+plot(transitivity(ihg_net, type = "local"), type="b", main="real")
+plot(transitivity(hg_rnd, type = "local"), type="b", main="random")
+plot(transitivity(hg_swn, type = "local"), type="b", main="SWN")
+```
+
+### d) Conclusion
+
+The comparison table makes clear that the SWN has a more similar mean path length and transitivity than the random network to the real one. The diameter, however, is not helpful in this comparison.
+The distribution comparisons,however, confirm that the SWN is more similar as the ranges of the probabilities of thetransitivity distribution is more similar to the one of the real one. The distributions of the degrees do not lead to a clear conclusion.
+In closing, the SWN is overall more similar to the real network and more suited to model it.
